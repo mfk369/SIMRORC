@@ -51,6 +51,8 @@ C_SURF, C_PLANE = "#fcfcfb", "#f1f0ec"
 BLUES = ["#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef", "#6da7ec", "#5598e7", "#3987e5",
          "#2a78d6", "#256abf", "#1c5cab", "#184f95", "#104281", "#0d366b"]
 FONT = "system-ui, -apple-system, 'Segoe UI', sans-serif"
+WIDE = ({"width": "stretch"} if tuple(int(x) for x in st.__version__.split(".")[:2]) >= (1, 49)
+        else {"use_container_width": True})   # new/old Streamlit keyword for full-width elements
 
 st.set_page_config(page_title="SimRORC", page_icon="♨️", layout="wide",
                    initial_sidebar_state="expanded")
@@ -89,7 +91,7 @@ def sidebar():
                     f'<a href="{LINKEDIN}" target="_blank">LinkedIn</a></div>', unsafe_allow_html=True)
         st.caption("Set the boundary conditions, then run. Design mode: the plant is sized "
                    "from the inputs; nothing is rated.")
-        run = st.button("▶  Run design", type="primary", use_container_width=True)
+        run = st.button("▶  Run design", type="primary", **WIDE)
 
         with st.expander("Brine (heat source)", expanded=True):
             T_geo_in = st.number_input("Production temperature [°C]", 40.0, 300.0, 100.0, 1.0)
@@ -668,41 +670,41 @@ def render(design: dict):
     with tabs[0]:
         c1, c2 = st.columns([1.1, 1])
         with c1:
-            st.plotly_chart(fig_ts(r), use_container_width=True)
+            st.plotly_chart(fig_ts(r), **WIDE)
         with c2:
-            st.plotly_chart(fig_train(r), use_container_width=True)
+            st.plotly_chart(fig_train(r), **WIDE)
         c3, c4 = st.columns(2)
         with c3:
-            st.plotly_chart(fig_evaporator(r), use_container_width=True)
+            st.plotly_chart(fig_evaporator(r), **WIDE)
         with c4:
-            st.plotly_chart(fig_preheater(r), use_container_width=True)
+            st.plotly_chart(fig_preheater(r), **WIDE)
         c5, c6 = st.columns(2)
         with c5:
             f = fig_recuperator(r)
             if f is None:
                 st.info("Recuperator inactive at this design point — no T-Q profile.", icon="ℹ️")
             else:
-                st.plotly_chart(f, use_container_width=True)
+                st.plotly_chart(f, **WIDE)
         with c6:
-            st.plotly_chart(fig_condenser(r), use_container_width=True)
+            st.plotly_chart(fig_condenser(r), **WIDE)
 
     with tabs[1]:
         st.markdown("**Working fluid**")
         st.dataframe(states.style.format({"T [°C]": "{:.2f}", "P [bar]": "{:.2f}", "h [kJ/kg]": "{:.2f}",
                                           "s [kJ/kgK]": "{:.4f}"}),
-                     use_container_width=True, hide_index=True)
+                     **WIDE, hide_index=True)
         lq = r["checks"]["liquid_at_preheater"]
         st.caption(f"State 2r (preheater inlet) is subcooled liquid by {lq['subcool_K']:.2f} K "
                    f"(minimum {lq['min_K']:.2f} K); 2p is saturated liquid (x = 0). "
                    "Working-fluid pressures are constant on each side (no pressure drops).")
         st.markdown("**Brine**")
         st.dataframe(brine.style.format({"T [°C]": "{:.2f}", "P [bar]": "{:.2f}", "h [kJ/kg]": "{:.2f}"}),
-                     use_container_width=True, hide_index=True)
+                     **WIDE, hide_index=True)
 
     with tabs[2]:
         st.dataframe(hx.style.format({"Q [kW]": "{:,.1f}", "pinch target [K]": "{:.1f}",
                                       "area [m²]": "{:,.1f}", "UA [kW/K]": "{:,.1f}"}),
-                     use_container_width=True, hide_index=True)
+                     **WIDE, hide_index=True)
         cd = r["condenser"]
         st.markdown(f"**Condenser air side** — {cd['m_air']:,.0f} kg/s ({cd['V_air']:,.0f} m³/s) at "
                     f"{cd['rho_air']:.3f} kg/m³; air {cd['T_a_in']-273.15:.1f} → after subcool {cd['T_a_b']-273.15:.1f} → "
@@ -715,10 +717,10 @@ def render(design: dict):
         c1, c2 = st.columns(2)
         with c1:
             st.markdown("**Power balance**")
-            st.dataframe(power.style.format({"kW": "{:,.1f}"}), use_container_width=True, hide_index=True)
+            st.dataframe(power.style.format({"kW": "{:,.1f}"}), **WIDE, hide_index=True)
         with c2:
             st.markdown("**Performance**")
-            st.dataframe(perf, use_container_width=True, hide_index=True)
+            st.dataframe(perf, **WIDE, hide_index=True)
 
     with tabs[4]:
         opt = design.get("opt")
@@ -729,7 +731,7 @@ def render(design: dict):
             if f is None:
                 st.warning("No feasible point on the grid.")
             else:
-                st.plotly_chart(f, use_container_width=True)
+                st.plotly_chart(f, **WIDE)
                 (Te, sh, Tc) = design_bounds(r["spec"])
                 st.caption(f"Search space: T_evap {Te[0]:.1f}–{Te[1]:.1f} °C, T_cond {Tc[0]:.1f}–{Tc[1]:.1f} °C"
                            + (f", superheat {sh[0]:.1f}–{sh[1]:.0f} K" if opt.get("superheat_held") is None else "")
@@ -745,21 +747,21 @@ def render(design: dict):
                              deviation_pct=dev, notes=v["extra"]))
         st.dataframe(pd.DataFrame(rows).style.format({"Q_design_kW": "{:,.1f}", "Q_rating_kW": "{:,.1f}",
                                                        "deviation_pct": "{:+.3f}"}, na_rep="–"),
-                     use_container_width=True, hide_index=True)
+                     **WIDE, hide_index=True)
 
     with tabs[6]:
         sp = r["spec"]
         tag = f"{sp.wf}_{sp.T_geo_in_C:.0f}C_{sp.geo_outlet}"
         c1, c2, c3, c4 = st.columns(4)
         c1.download_button("Design summary (JSON)", json.dumps(result_to_dict(r), indent=2, default=_json_default),
-                           f"SimRORC_design_{tag}.json", "application/json", use_container_width=True)
+                           f"SimRORC_design_{tag}.json", "application/json", **WIDE)
         c2.download_button("State points, WF + brine (CSV)",
                            states.to_csv(index=False) + "\n" + brine.to_csv(index=False),
-                           f"SimRORC_states_{tag}.csv", "text/csv", use_container_width=True)
+                           f"SimRORC_states_{tag}.csv", "text/csv", **WIDE)
         c3.download_button("Heat exchangers (CSV)", hx.to_csv(index=False), f"SimRORC_exchangers_{tag}.csv", "text/csv",
-                           use_container_width=True)
+                           **WIDE)
         c4.download_button("T-Q profiles (CSV)", profiles_csv(r), f"SimRORC_TQ_profiles_{tag}.csv", "text/csv",
-                           use_container_width=True)
+                           **WIDE)
         st.download_button("Inputs (JSON) — reproduce this run from the command line", json.dumps(asdict(sp), indent=2),
                            f"SimRORC_inputs_{tag}.json", "application/json")
         st.caption("The same model runs headless: `python ORC_recuperated.py --help`. Use `PlantSpec(**inputs)` "
