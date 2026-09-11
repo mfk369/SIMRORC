@@ -5,7 +5,7 @@ Design-mode simulator for a recuperated organic Rankine cycle on a liquid
 geothermal or waste-heat source. You give the boundary conditions (brine, ambient,
 working fluid, pinch temperatures, efficiencies, reinjection target +/- tolerance)
 and the tool sizes the plant for maximum net power, guaranteeing:
-  * brine train = EVAPORATOR then PREHEATER (pressure drop in each, brine pump restores it),
+  * brine train = EVAPORATOR then PREHEATER (pressure drop in each, injection pump at the reinjection well),
   * the preheater brings the working fluid exactly to its bubble point,
   * the working fluid is liquid before the preheater (state 2r subcooled),
   * the minimum approach (pinch) in every exchanger,
@@ -96,12 +96,12 @@ def sidebar():
         with st.expander("Brine (heat source)", expanded=True):
             T_geo_in = st.number_input("Production temperature [°C]", 40.0, 300.0, 100.0, 1.0)
             m_geo = st.number_input("Mass flow [kg/s]", 0.1, 5000.0, 50.0, 1.0)
-            P_geo = st.number_input("Pressure held by brine pump [bar]", 1.0, 200.0, 5.0, 0.5,
-                                    help="brine pressure at the evaporator inlet; must be above the boiling "
+            P_geo = st.number_input("Production wellhead pressure [bar]", 1.0, 300.0, 5.0, 0.5,
+                                    help="brine pressure arriving at the evaporator inlet; must be above the boiling "
                                          "pressure of water at the production temperature")
             P_sat_geo = PropsSI("P", "T", T_geo_in + 273.15, "Q", 0, "Water") / 1e5
             if P_geo <= P_sat_geo + 0.2:
-                st.warning(f"Water at {T_geo_in:.0f} °C boils at {P_sat_geo:.1f} bar. Set the brine pressure "
+                st.warning(f"Water at {T_geo_in:.0f} °C boils at {P_sat_geo:.1f} bar. Set the production pressure "
                            f"above that (for example {P_sat_geo + 3:.0f} bar), otherwise the brine flashes to steam.",
                            icon="⚠️")
             rule = st.radio("Reinjection rule",
@@ -113,13 +113,16 @@ def sidebar():
             tol = st.number_input("Allowed deviation ± [K]", 0.0, 150.0, 10.0, 1.0,
                                   disabled=(rule != "Target ± tolerance"))
 
-        with st.expander("Brine circuit losses & pump", expanded=False):
+        with st.expander("Brine circuit & injection pump", expanded=False):
             dP_hx = st.number_input("Pressure drop per exchanger [bar]", 0.0, 5.0, 0.3, 0.05,
                                     help="lost in the evaporator and again in the preheater")
-            dP_extra = st.number_input("Other loop losses [bar]", 0.0, 50.0, 0.0, 0.1,
-                                       help="any extra head the brine pump must supply")
-            eta_bp = st.number_input("Brine pump efficiency [-]", 0.2, 1.0, 0.75, 0.05)
-            eta_bm = st.number_input("Brine pump motor [-]", 0.5, 1.0, 0.95, 0.01)
+            P_inj = st.number_input("Injection pump discharge pressure [bar]", 0.0, 500.0, 5.0, 0.5,
+                                    help="pressure the injection pump must deliver into the injection well "
+                                         "(EGS: set well above the production pressure to cover fracture losses)")
+            st.caption(f"Pump suction = production pressure − 2 × exchanger loss = {P_geo - 2 * dP_hx:.2f} bar; "
+                       f"pump head = {max(P_inj - (P_geo - 2 * dP_hx), 0):.2f} bar")
+            eta_bp = st.number_input("Injection pump efficiency [-]", 0.2, 1.0, 0.75, 0.05)
+            eta_bm = st.number_input("Injection pump motor [-]", 0.5, 1.0, 0.95, 0.01)
 
         with st.expander("Working fluid & cycle", expanded=False):
             wf = st.selectbox("Working fluid (CoolProp)", WORKING_FLUIDS, index=0)
@@ -176,7 +179,7 @@ def sidebar():
     superheat_mode = {"None (saturated vapour)": "none", "Optimise": "optimise", "Fixed value": "fixed"}[sh_mode]
     spec = PlantSpec(T_geo_in_C=T_geo_in, P_geo_bar=P_geo, m_geo=m_geo, T_geo_out_C=T_geo_out,
                      T_geo_out_tol_K=tol, geo_outlet=geo_outlet,
-                     dP_geo_hx_bar=dP_hx, dP_geo_extra_bar=dP_extra, eta_geo_pump=eta_bp, eta_geo_motor=eta_bm,
+                     dP_geo_hx_bar=dP_hx, P_inj_bar=P_inj, eta_geo_pump=eta_bp, eta_geo_motor=eta_bm,
                      wf=wf, recuperator=recup, dT_subcool_K=dT_sc, dT_liquid_min_K=dT_liq,
                      superheat_mode=superheat_mode, dT_sh_fixed_K=sh_fixed,
                      pinch_evap_K=p_e, pinch_pre_K=p_p, pinch_rec_K=p_r, pinch_cond_K=p_c,
@@ -217,7 +220,7 @@ def compute(spec: PlantSpec, ctl: dict) -> dict:
     if spec.P_geo_bar <= P_sat_geo + 0.2:
         out["error"] = (f"The brine would flash to steam: water at {spec.T_geo_in_C:.0f} °C boils at "
                         f"{P_sat_geo:.1f} bar, but the brine pressure is only {spec.P_geo_bar:.1f} bar. "
-                        f"Raise **Pressure held by brine pump** above {P_sat_geo:.1f} bar "
+                        f"Raise **Production wellhead pressure** above {P_sat_geo:.1f} bar "
                         f"(for example {P_sat_geo + 3:.0f} bar) and run again.")
         return out
     try:
@@ -247,7 +250,7 @@ def compute(spec: PlantSpec, ctl: dict) -> dict:
 # =====================================================================
 def plant_svg(r: dict | None) -> str:
     """Block-flow schematic with the live state values.
-    Brine: production -> brine pump -> EVAPORATOR -> PREHEATER -> injection.
+    Brine: production -> EVAPORATOR -> PREHEATER -> injection pump -> injection well.
     Working fluid: pump -> recuperator (cold) -> preheater -> evaporator -> turbine -> recuperator (hot) -> condenser."""
     if r is not None:
         S = r["states"]
@@ -255,15 +258,15 @@ def plant_svg(r: dict | None) -> str:
         ev = r["evaporator"]; pr = r["preheater"]; rc = r["recuperator"]; cd = r["condenser"]; br = r["brine"]
         T = {lbl: S[key]["T_C"] for lbl, key in zip(STATE_LABELS, S)}
         P_hi, P_lo = r["P_evap_bar"], r["P_cond_bar"]
-        b0, b1, b2 = br["states"]
+        b0, b1, b2, b3 = br["states"]
         geo_in = f"{b0['T_C']:.1f} °C · {sp.m_geo:.0f} kg/s · {b0['P_bar']:.1f} bar"
         geo_mid = f"{b1['T_C']:.1f} °C · {b1['P_bar']:.1f} bar"
-        geo_out = f"{b2['T_C']:.1f} °C · {b2['P_bar']:.1f} bar"
+        geo_out = f"{b3['T_C']:.1f} °C · {b3['P_bar']:.1f} bar"
         q_ev, q_pr = f"Q = {ev['Q']/1e3:,.0f} kW", f"Q = {pr['Q']/1e3:,.0f} kW"
         q_rc = f"Q = {rc['Q']/1e3:,.0f} kW" if rc["active"] else "inactive"
         q_cd = f"Q = {cd['Q']/1e3:,.0f} kW"
         w_t, w_p, w_f = f"{P['W_turb_el']/1e3:,.0f} kW", f"{P['W_pump_el']/1e3:,.1f} kW", f"fans {P['W_fan_el']/1e3:,.0f} kW"
-        w_bp = f"brine pump {P['W_geo_pump_el']/1e3:,.1f} kW"
+        w_bp = f"injection pump {P['W_geo_pump_el']/1e3:,.1f} kW · {b2['P_bar']:.1f} → {b3['P_bar']:.1f} bar"
         air_in, air_out = f"{sp.T_air_in_C:.1f} °C · {cd['m_air']:,.0f} kg/s", f"{cd['T_a_out']-273.15:.1f} °C"
         mwf = f"{r['m_wf']:.1f} kg/s {sp.wf}"
     else:
@@ -292,15 +295,15 @@ def plant_svg(r: dict | None) -> str:
         f'<path d="M0,0 L10,5 L0,10 z" fill="{c}"/></marker>' for c in (C_HOT, C_COLD, C_AQUA))
 
     s = [f'<svg viewBox="0 0 1000 400" width="100%" xmlns="http://www.w3.org/2000/svg" font-family="{FONT}"><defs>{defs}</defs>']
-    # ---- brine (orange): production -> brine pump -> evaporator -> preheater -> injection
+    # ---- brine (orange): production -> evaporator -> preheater -> injection pump -> injection well
     s += [txt(330, 22, "PRODUCTION WELL", 11, color=C_HOT, weight="600"), txt(330, 36, geo_in, 11, color=C_INK2),
-          line("330,40 330,68", C_HOT, marker=False),
-          f'<circle cx="330" cy="80" r="11" fill="{C_SURF}" stroke="{C_HOT}" stroke-width="2"/>',
-          txt(330, 84, "P", 10, color=C_HOT, weight="600"),
-          txt(346, 84, w_bp, 9.5, anchor="start", color=C_INK2),
-          line("330,91 330,120", C_HOT),
+          line("330,40 330,120", C_HOT),
           line("255,120 255,85 125,85 125,120", C_HOT), txt(190, 104, geo_mid, 10, color=C_INK2),
-          line("70,120 70,40", C_HOT), txt(70, 22, "INJECTION WELL", 11, color=C_HOT, weight="600"),
+          line("70,120 70,73", C_HOT, marker=False),
+          f'<circle cx="70" cy="62" r="11" fill="{C_SURF}" stroke="{C_HOT}" stroke-width="2"/>',
+          txt(70, 66, "P", 10, color=C_HOT, weight="600"),
+          txt(86, 66, w_bp, 9.5, anchor="start", color=C_INK2),
+          line("70,51 70,40", C_HOT), txt(70, 22, "INJECTION WELL", 11, color=C_HOT, weight="600"),
           txt(70, 36, geo_out, 11, color=C_INK2)]
     # ---- air (aqua) through the condenser
     s += [line("835,40 835,120", C_AQUA), txt(835, 22, "AMBIENT AIR", 11, color=C_AQUA, weight="600"),
@@ -497,9 +500,13 @@ def fig_map(opt: dict, r: dict | None) -> go.Figure | None:
 def banners(r: dict, design: dict):
     sp = r["spec"]; ck = r["checks"]; rc = r["recuperator"]; br = r["brine"]
     rj = ck["reinjection"]
-    b1, b2 = br["states"][1], br["states"][2]
-    path = (f"brine {sp.T_geo_in_C:.1f} °C → evaporator → {b1['T_C']:.1f} °C ({b1['P_bar']:.1f} bar) → "
-            f"preheater → **{b2['T_C']:.1f} °C at {b2['P_bar']:.1f} bar** to injection")
+    b1, b2, b3 = br["states"][1], br["states"][2], br["states"][3]
+    path = (f"brine {sp.T_geo_in_C:.1f} °C ({sp.P_geo_bar:.1f} bar) → evaporator → {b1['T_C']:.1f} °C "
+            f"({b1['P_bar']:.1f} bar) → preheater → {b2['T_C']:.1f} °C ({b2['P_bar']:.1f} bar) → injection pump → "
+            f"**{b3['T_C']:.1f} °C at {b3['P_bar']:.1f} bar** into the injection well")
+    if br["pump"]["no_head"]:
+        st.warning(f"**Injection pump idle** — the injection pressure ({sp.P_inj_bar:.1f} bar) is not above the pump "
+                   f"suction ({br['P_suction_bar']:.2f} bar), so no pump work is counted.", icon="⚠️")
     if rj["mode"] == "free":
         st.info(f"**Reinjection** {path} — pinch-limited (no constraint applied). "
                 f"Working-fluid flow set by the {br['limiting']}.", icon="💧")
@@ -535,12 +542,13 @@ def kpis(r: dict):
     c[1].metric("Turbine", f"{P['W_turb_el']/1e3:,.0f} kW", help="electric, after mechanical and generator losses")
     c[2].metric("Fans", f"−{P['W_fan_el']/1e3:,.0f} kW", help="air-cooled condenser fans (electric)")
     c[3].metric("Feed pump", f"−{P['W_pump_el']/1e3:,.1f} kW", help="working-fluid pump, electric")
-    c[4].metric("Brine pump", f"−{P['W_geo_pump_el']/1e3:,.1f} kW",
-                help=f"restores {r['brine']['dP_total_bar']:.2f} bar lost by the brine")
+    c[4].metric("Injection pump", f"−{P['W_geo_pump_el']/1e3:,.1f} kW",
+                help=f"head {r['brine']['dP_total_bar']:.1f} bar: {r['brine']['P_suction_bar']:.1f} → "
+                     f"{r['brine']['P_inj_bar']:.1f} bar")
     d = st.columns(6)
     d[0].metric("WF flow", f"{r['m_wf']:.1f} kg/s", help="working-fluid mass flow")
-    d[1].metric("Reinjection", f"{pf['T_geo_out_C']:.1f} °C", f"{pf['P_geo_out_bar']:.2f} bar", delta_color="off",
-                help="brine temperature and pressure to the injection well")
+    d[1].metric("Reinjection", f"{pf['T_inj_C']:.1f} °C", f"{pf['P_inj_bar']:.1f} bar", delta_color="off",
+                help="brine temperature and pressure into the injection well (after the injection pump)")
     d[2].metric("Evaporation", f"{dv.T_evap_C:.1f} °C", f"{r['P_evap_bar']:.2f} bar", delta_color="off")
     d[3].metric("Superheat", f"{dv.dT_sh_K:.1f} K", f"inlet {dv.T_evap_C + dv.dT_sh_K:.1f} °C", delta_color="off")
     d[4].metric("Condensing", f"{dv.T_cond_C:.1f} °C", f"{r['P_cond_bar']:.2f} bar", delta_color="off")
@@ -594,7 +602,7 @@ def tables(r: dict):
         ("Turbine shaft power", P["W_turb_shaft"] / 1e3), ("Turbine electric power", P["W_turb_el"] / 1e3),
         ("Feed pump shaft power", P["W_pump_shaft"] / 1e3), ("Feed pump electric power", P["W_pump_el"] / 1e3),
         ("Condenser fan power (electric)", P["W_fan_el"] / 1e3),
-        (f"Brine pump electric power ({bp['dP_bar']:.2f} bar)", P["W_geo_pump_el"] / 1e3),
+        (f"Injection pump electric power (head {bp['dP_bar']:.1f} bar)", P["W_geo_pump_el"] / 1e3),
         ("NET ELECTRIC POWER", P["W_net"] / 1e3),
         ("Heat from brine, evaporator", pf["Q_evap"] / 1e3), ("Heat from brine, preheater", pf["Q_pre"] / 1e3),
         ("Recuperated heat", pf["Q_rec"] / 1e3), ("Heat rejected (condenser)", pf["Q_cond"] / 1e3)],
@@ -608,7 +616,8 @@ def tables(r: dict):
         ("Back-work ratio", f"{100*pf['back_work_ratio']:.1f} %  ((pumps + fans) / turbine)"),
         ("Specific net power", f"{pf['W_net_per_kg_geo']/1e3:.2f} kW per kg/s brine"),
         ("Brine after evaporator", f"{pf['T_geo_mid_C']:.2f} °C"),
-        ("Brine to injection", f"{pf['T_geo_out_C']:.2f} °C at {pf['P_geo_out_bar']:.2f} bar"),
+        ("Brine to injection well", f"{pf['T_inj_C']:.2f} °C at {pf['P_inj_bar']:.2f} bar "
+                                    f"(preheater outlet {pf['T_geo_out_C']:.2f} °C at {pf['P_geo_out_bar']:.2f} bar)"),
         ("Feed-pump temperature rise", f"{r['pump']['dT']:.2f} K"),
         ("Turbine isentropic enthalpy drop", f"{r['turbine']['dh_isen']/1e3:.2f} kJ/kg"),
         ("Turbine outlet", f"{r['turbine']['phase_out']}" + (f", x = {r['turbine']['x_out']:.3f}" if r["checks"]["turbine_outlet_quality"] is not None and 0 <= r["checks"]["turbine_outlet_quality"] <= 1 else ""))],
@@ -764,7 +773,7 @@ def main():
     spec, ctl = sidebar()
     st.markdown(f"# {APP_NAME}")
     st.markdown('<div class="small">Design mode · recuperated organic Rankine cycle on a liquid geothermal or '
-                'waste-heat source · brine through evaporator then preheater (pressure drop restored by a brine pump) · '
+                'waste-heat source · brine through evaporator then preheater (injection pump at the reinjection well) · '
                 'preheater to the bubble point · liquid guaranteed before the preheater · pinch-limited exchangers · '
                 'air-cooled condenser · reinjection target with tolerance</div>', unsafe_allow_html=True)
     st.markdown("")
