@@ -507,17 +507,6 @@ def banners(r: dict, design: dict):
         st.success(f"**Reinjection** {path} — inside the allowed {rj['floor_C']:.1f} … {rj['ceiling_C']:.1f} °C "
                    f"(target {rj['target_C']:.0f} °C, deviation {rj['deviation_K']:+.1f} K). "
                    f"Working-fluid flow set by the {br['limiting']}.", icon="💧")
-    lq = ck["liquid_at_preheater"]
-    st.success(f"**Liquid before the preheater** — state 2r is subcooled by {lq['subcool_K']:.1f} K "
-               f"(minimum {lq['min_K']:.1f} K); the preheater delivers saturated liquid at "
-               f"{r['dv'].T_evap_C:.1f} °C to the evaporator"
-               + (" · recuperator duty capped to keep 2r liquid" if lq["capped"] else "") + ".", icon="✅")
-    pe, ppn, pr_, pc = ck["pinch"]["evaporator"], ck["pinch"]["preheater"], ck["pinch"]["recuperator"], ck["pinch"]["condenser"]
-    st.info(f"**Minimum approach** — evaporator {pe[0]:.1f} K (target {pe[1]:.0f} K, at the "
-            f"{r['evaporator']['pinch_location']}) · preheater {ppn[0]:.1f} K (target {ppn[1]:.0f} K, at the "
-            f"{r['preheater']['pinch_location']}) · recuperator "
-            f"{(f'{pr_[0]:.1f} K' if pr_[0] is not None else '–')} (target {pr_[1]:.0f} K) · condenser "
-            f"{pc[0]:.1f} K (target {pc[1]:.0f} K).", icon="🌡️")
     if sp.recuperator and not rc["active"]:
         S = r["states"]; k = list(S)
         why = (f"capped to zero by the {rc['cap_reason']}" if rc["capped"] else
@@ -774,8 +763,6 @@ def render(design: dict):
 def main():
     spec, ctl = sidebar()
     st.markdown(f"# {APP_NAME}")
-    st.markdown(f'<div class="byline">by <b>{AUTHOR}</b> · <a href="{LINKEDIN}" target="_blank">'
-                f'www.linkedin.com/in/md-faisal-karim</a></div>', unsafe_allow_html=True)
     st.markdown('<div class="small">Design mode · recuperated organic Rankine cycle on a liquid geothermal or '
                 'waste-heat source · brine through evaporator then preheater (pressure drop restored by a brine pump) · '
                 'preheater to the bubble point · liquid guaranteed before the preheater · pinch-limited exchangers · '
@@ -794,29 +781,6 @@ def main():
         st.markdown(plant_svg(None), unsafe_allow_html=True)
     else:
         render(design)
-
-    with st.expander("Method & assumptions"):
-        st.markdown("""
-* **Brine train** — the brine enters the **evaporator** first (boiling the working fluid from its bubble point) and then
-  the **preheater** (heating the liquid from the recuperator outlet exactly to the bubble point); it loses the set
-  pressure drop in each exchanger and a brine pump restores the loop pressure (auxiliary load in the net power).
-* **Components** — turbine (isentropic + mechanical efficiency), feed pump (isentropic efficiency, liquid inlet),
-  counter-flow exchangers (T-Q profile with phase-boundary refinement, pinch and area), air-cooled condenser
-  (3-zone desuperheat / condense / subcool with LMTD, fan power = volumetric flow × Δp / η). Fluid properties: CoolProp.
-* **Working-fluid flow** — the largest flow that respects the evaporator and preheater pinches on the full profiles
-  without cooling the brine below the reinjection floor; a design point that cannot cool the brine to the
-  reinjection ceiling is rejected.
-* **Recuperator** — maximum recovery at its pinch, capped so that (i) state 2r stays liquid with the requested
-  subcooling and (ii) the preheater cold end keeps its pinch when the reinjection ceiling binds.
-* **Condenser** — the smallest air flow that respects the condenser pinch (the approach between the condensing
-  temperature and the air leaving the condensing zone); the condensing temperature is optimised against fan power.
-* **Optimiser** — grid over (T_evap, T_cond) in 2 K steps, then Nelder-Mead refinement (superheat included only in
-  *Optimise* mode). Net power = turbine electric − feed pump − fans − brine pump.
-* **Not modelled** — working-fluid pressure drops, heat losses, part load, generator cooling, other plant auxiliaries.
-""")
-    st.markdown(f'<div class="footer">{APP_NAME} · by {AUTHOR} · '
-                f'<a href="{LINKEDIN}" target="_blank">www.linkedin.com/in/md-faisal-karim</a></div>',
-                unsafe_allow_html=True)
 
 
 main()
